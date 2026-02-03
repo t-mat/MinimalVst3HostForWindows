@@ -13,8 +13,8 @@ Prerequisites
 - `cmake`
 
 
-Building the Project
---------------------
+Building the project with `cmake`
+---------------------------------
 
 ```
 cmd.exe
@@ -29,3 +29,18 @@ cmake --build build --config Release
 
 .\MinimalVst3HostForWindows.exe
 ```
+
+
+Building the project in "Visual Studio Command Prompt"
+------------------------------------------------------
+
+1.  Open the "x64 Native Tools Command Prompt for VS (2026)" from Windows Start Menu.
+2.  Run the following commands to build and execute:
+    ```
+    cmd.exe
+    pushd %PUBLIC%
+    git clone https://github.com/t-mat/MinimalVst3HostForWindows.git
+    cd MinimalVst3HostForWindows
+    cl /Fe:MinimalVst3HostForWindows /MT /std:c++20 /O2 /EHsc /I .\third_party\vst3sdk .\src\MinimalVst3HostForWindows.cpp
+    .\MinimalVst3HostForWindows.exe
+    ```
