@@ -70,10 +70,12 @@
 #pragma clang diagnostic pop
 #endif
 
-const std::filesystem::path localVst3Dir  = L"./third_party/vst3plugins/";
+const std::filesystem::path localVst3Dir  = L"./third_party";
 const std::filesystem::path commonVst3Dir = L"C:/Program Files/Common Files/VST3/";
 
 const std::vector<std::filesystem::path> global_pluginPaths = {
+    // https://github.com/midilab/jc303
+    localVst3Dir / L"JC-303_Windows_X64/VST3/JC303.vst3/Contents/x86_64-win/JC303.vst3",
 };
 
 enum class Color : int { Normal = 0, Red = 91, Green = 92 };

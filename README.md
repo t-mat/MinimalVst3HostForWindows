@@ -24,6 +24,7 @@ pushd %PUBLIC%
 git clone https://github.com/t-mat/MinimalVst3HostForWindows.git
 cd MinimalVst3HostForWindows
 
+call .\third_party\jc303-setup.bat
 cmake . -B build -G "Visual Studio 18 2026" -A x64
 cmake --build build --config Release
 
@@ -41,6 +42,14 @@ Building the project in "Visual Studio Command Prompt"
     pushd %PUBLIC%
     git clone https://github.com/t-mat/MinimalVst3HostForWindows.git
     cd MinimalVst3HostForWindows
+    call .\third_party\jc303-setup.bat
     cl /Fe:MinimalVst3HostForWindows /MT /std:c++20 /O2 /EHsc /I .\third_party\vst3sdk .\src\MinimalVst3HostForWindows.cpp
     .\MinimalVst3HostForWindows.exe
     ```
+
+
+See Also
+--------
+
+- [VST 3 Plug-In SDK](https://github.com/steinbergmedia/vst3sdk) - Official Steinberg VST3 SDK
+- [JC-303 Plugin](https://github.com/midilab/jc303) - Free Roland TB-303 clone plugin
