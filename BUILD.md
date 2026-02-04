@@ -6,12 +6,33 @@ Prerequisites
 -------------
 
 - Windows 11 (x64)
-- Visual Studio 2026
-  - Visual C++
 
 
-Building the project
---------------------
+Building the project with portable mingw
+----------------------------------------
+
+```bat
+cmd.exe
+pushd %PUBLIC%
+
+mkdir MyTestVst3Host
+cd    MyTestVst3Host
+
+curl.exe -LOJ https://github.com/t-mat/MinimalVst3HostForWindows/archive/refs/heads/main.zip
+tar.exe xvf MinimalVst3HostForWindows-main.zip
+cd          MinimalVst3HostForWindows-main
+
+call .\third_party\jc303-setup.bat
+call .\build-mingw.bat
+
+.\MinimalVst3HostForWindows.exe
+```
+
+
+Building the project with Visual Studio
+---------------------------------------
+
+Prerequisites: Visual Studio
 
 ```bat
 cmd.exe
@@ -30,8 +51,10 @@ call .\build.bat
 ```
 
 
-Building the project with `cmake`
----------------------------------
+Building the project with `git`, `cmake` and Visual Studio
+----------------------------------------------------------
+
+Prerequisites: `git`, `cmake`, Visual Studio
 
 ```bat
 cmd.exe
@@ -51,6 +74,8 @@ cmake --build build --config Release
 Building the project in "Visual Studio Command Prompt"
 ------------------------------------------------------
 
+Prerequisites: Visual Studio
+
 Open the "x64 Native Tools Command Prompt for VS (2026)" from Windows Start Menu.  
 Run the following commands to build and execute:
 
@@ -58,8 +83,9 @@ Run the following commands to build and execute:
 cmd.exe
 pushd %PUBLIC%
 
-git clone https://github.com/t-mat/MinimalVst3HostForWindows.git
-cd MinimalVst3HostForWindows
+curl.exe -LOJ https://github.com/t-mat/MinimalVst3HostForWindows/archive/refs/heads/main.zip
+tar.exe xvf MinimalVst3HostForWindows-main.zip
+cd          MinimalVst3HostForWindows-main
 
 call .\third_party\jc303-setup.bat
 cl /Fe:MinimalVst3HostForWindows /MT /std:c++20 /O2 /EHsc /I .\third_party\vst3sdk .\src\MinimalVst3HostForWindows.cpp
