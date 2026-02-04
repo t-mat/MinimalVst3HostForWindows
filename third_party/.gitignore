@@ -1,5 +1,5 @@
 /*
 !/vst3sdk
 !.gitignore
-*.md
-*.bat
+!*.md
+!*.bat
