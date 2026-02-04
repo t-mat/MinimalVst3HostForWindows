@@ -11,12 +11,12 @@ Prerequisites
 -------------
 
 - Windows 11 (x64)
-- Visual Studio 2026
-  - Visual C++
 
 
-Building the project
---------------------
+Building the project with portable MinGW
+----------------------------------------
+
+This method doesn't require any external development tools.
 
 ```bat
 cmd.exe
@@ -30,14 +30,16 @@ tar.exe xvf MinimalVst3HostForWindows-main.zip
 cd          MinimalVst3HostForWindows-main
 
 call .\third_party\jc303-setup.bat
-call .\build.bat
+call .\build-mingw.bat
 
 .\MinimalVst3HostForWindows.exe
 ```
 
 
-Building the project with `git` and `cmake`
--------------------------------------------
+Building the project with `git`, `cmake` and Visual Studio
+----------------------------------------------------------
+
+Prerequisites: `git`, `cmake`, Visual Studio
 
 ```bat
 cmd.exe
@@ -92,3 +94,4 @@ See Also
 
 - [VST 3 Plug-In SDK](https://github.com/steinbergmedia/vst3sdk) - Official Steinberg VST3 SDK
 - [JC-303 Plugin](https://github.com/midilab/jc303) - Free Roland TB-303 clone plugin
+- [MinGW-W64-binaries](https://github.com/niXman/mingw-builds-binaries/) - MinGW-W64 compiler binaries
