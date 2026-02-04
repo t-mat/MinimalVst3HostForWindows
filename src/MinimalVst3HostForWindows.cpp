@@ -3,8 +3,7 @@
 // clang-format off
 //
 // SPDX-FileCopyrightText: Copyright (c) Takayuki Matsuoka
-// SPDX-License-Identifier: CC0-1.0
-// Note: Copyright notice ensures CC0 fallback license validity where waiver is not applicable.
+// SPDX-License-Identifier: MIT-0
 //
 // clang-format on
 
@@ -34,7 +33,6 @@
 #include <atomic>
 #include <filesystem>
 #include <functional>
-#include <map>
 #include <mutex>
 #include <span>
 #include <string>
@@ -96,18 +94,23 @@ void lpr(const Color c, const wchar_t *type, const char *file, const int line, c
 // WASAPI Control Class
 class Wasapi final {
   public:
-    using RefillFunc = std::function<void(std::span<float> wasapiInterleavedBuf, unsigned nChannels, unsigned nSamples,
-                                          double sampleRate)>;
+    struct RefillArgs {
+        std::span<float> wasapiInterleavedBuf;
+        double           sampleRate;
+        unsigned         nChannels;
+        unsigned         nSamples;
+    };
+    using RefillFunc = std::function<void(const RefillArgs &refillArgs)>;
 
     explicit Wasapi(const int hnsBufferDuration = 100000) { init(hnsBufferDuration); }
 
     ~Wasapi() { cleanup(); }
 
-    [[nodiscard]] bool good() const { return initialized_; }
+    [[nodiscard]] bool     good() const { return initialized_; }
     [[nodiscard]] unsigned getBufferSize() const { return bufferSize_; }
     [[nodiscard]] unsigned getNumChannels() const { return pFormat_ ? pFormat_->nChannels : 2; }
-    [[nodiscard]] double getSampleRate() const { return pFormat_ ? pFormat_->nSamplesPerSec : 0; }
-    void setAudioThreadRefillCallback(const RefillFunc &refillFunc) { refillFunc_ = refillFunc; }
+    [[nodiscard]] double   getSampleRate() const { return pFormat_ ? pFormat_->nSamplesPerSec : 0; }
+    void                   setAudioThreadRefillCallback(const RefillFunc &refillFunc) { refillFunc_ = refillFunc; }
     // ReSharper disable once CppMemberFunctionMayBeConst
     void stop() {
         if (hCloseAudioThreadEvent) {
@@ -122,12 +125,12 @@ class Wasapi final {
         if (!initialized_) {
             return MY_ERROR(L"!initialized_\n");
         }
-        const HANDLE events[] = {hRefillEvent_, hCloseAudioThreadEvent};
-        const unsigned nChannels = getNumChannels();
-        const auto combinedBuffer = std::make_unique<float[]>(bufferSize_ * nChannels);
-        DWORD taskIndex = 0;
-        HANDLE hTask = nullptr;
-        HRESULT hrCoInit = E_UNEXPECTED;
+        const HANDLE   events[]       = {hRefillEvent_, hCloseAudioThreadEvent};
+        const unsigned nChannels      = getNumChannels();
+        const auto     combinedBuffer = std::make_unique<float[]>(bufferSize_ * nChannels);
+        DWORD          taskIndex      = 0;
+        HANDLE         hTask          = nullptr;
+        HRESULT        hrCoInit       = E_UNEXPECTED;
         if (FAILED(hrCoInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED))) {
             MY_ERROR(L"FAILED(0x%08x), CoInitializeEx\n", hrCoInit);
             goto end;
@@ -150,14 +153,19 @@ class Wasapi final {
                 break;
             }
             const uint32_t nFrame = bufferSize_ - pad;
-            float *o;
+            float         *o;
             if (HRESULT hr; FAILED(hr = audioRenderClient_->GetBuffer(nFrame, reinterpret_cast<BYTE **>(&o)))) {
                 MY_ERROR(L"FAILED(0x%08x), audioRenderClient_->GetBuffer()\n", hr);
                 break;
             }
             if (refillFunc_) {
-                const std::span wasapiInterleavedBuf(o, nFrame * nChannels);
-                refillFunc_(wasapiInterleavedBuf, nChannels, nFrame, pFormat_->nSamplesPerSec);
+                const RefillArgs refillArgs{
+                    .wasapiInterleavedBuf = std::span(o, nFrame * nChannels),
+                    .sampleRate           = (double)pFormat_->nSamplesPerSec,
+                    .nChannels            = nChannels,
+                    .nSamples             = nFrame,
+                };
+                refillFunc_(refillArgs);
             } else {
                 memset(o, 0, nFrame * nChannels * sizeof(*o));
             }
@@ -181,7 +189,7 @@ class Wasapi final {
   private:
     void init(const int hnsBufferDuration) {
         hCloseAudioThreadEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-        hRefillEvent_ = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+        hRefillEvent_          = CreateEvent(nullptr, FALSE, FALSE, nullptr);
 
         if (HRESULT hr; FAILED(hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
                                                      __uuidof(IMMDeviceEnumerator),
@@ -189,7 +197,7 @@ class Wasapi final {
             return MY_ERROR(L"FAILED(0x%08x), CoCreateInstance()\n", hr);
         }
 
-        // eRener and eConsole are declared in mmdeviceapi.h
+        // eRender and eConsole are declared in mmdeviceapi.h
         if (HRESULT hr; FAILED(
                 hr = mmDeviceEnumerator_->GetDefaultAudioEndpoint(EDataFlow::eRender, ERole::eConsole, &mmDevice_))) {
             return MY_ERROR(L"FAILED(0x%08x), mmDeviceEnumerator_->GetDefaultAudioEndpoint()\n", hr);
@@ -250,32 +258,35 @@ class Wasapi final {
         }
     }
 
-    HANDLE hCloseAudioThreadEvent = nullptr;
-    HANDLE hRefillEvent_ = nullptr;
-    IMMDeviceEnumerator *mmDeviceEnumerator_ = nullptr;
-    IMMDevice *mmDevice_ = nullptr;
-    IAudioClient *audioClient_ = nullptr;
-    IAudioRenderClient *audioRenderClient_ = nullptr;
-    WAVEFORMATEX *pFormat_ = nullptr;
-    uint32_t bufferSize_ = 0;
-    bool initialized_ = false;
-    RefillFunc refillFunc_{};
+    HANDLE               hCloseAudioThreadEvent = nullptr;
+    HANDLE               hRefillEvent_          = nullptr;
+    IMMDeviceEnumerator *mmDeviceEnumerator_    = nullptr;
+    IMMDevice           *mmDevice_              = nullptr;
+    IAudioClient        *audioClient_           = nullptr;
+    IAudioRenderClient  *audioRenderClient_     = nullptr;
+    WAVEFORMATEX        *pFormat_               = nullptr;
+    uint32_t             bufferSize_            = 0;
+    bool                 initialized_           = false;
+    RefillFunc           refillFunc_{};
 }; // class Wasapi
 
 // Thread-safe SPSC (Single Producer Single Consumer) queue
 template <class T, unsigned NumberOfElements> class SpscQueue final {
-    static constexpr size_t Capacity = NumberOfElements + 1;
+    static constexpr size_t Capacity         = NumberOfElements + 1;
     static constexpr size_t FalseSharingSize = std::hardware_destructive_interference_size;
-    static constexpr size_t AlignSize = std::max(alignof(T), FalseSharingSize);
+    static constexpr size_t AlignSize        = std::max(alignof(T), FalseSharingSize);
+
     struct AlignedStorage {
         alignas(AlignSize) std::byte storage[sizeof(T)];
     };
+
     static constexpr unsigned next(const unsigned i) { return (i + 1) % Capacity; }
 
   public:
-    SpscQueue() = default; // NOLINT(*-pro-type-member-init)
-    SpscQueue(const SpscQueue &) = delete;
+    SpscQueue()                             = default; // NOLINT(*-pro-type-member-init)
+    SpscQueue(const SpscQueue &)            = delete;
     SpscQueue &operator=(const SpscQueue &) = delete;
+
     ~SpscQueue() {
         if constexpr (!std::is_trivially_destructible_v<T>) {
             const unsigned end = writeIndex_.load(std::memory_order_relaxed);
@@ -287,7 +298,7 @@ template <class T, unsigned NumberOfElements> class SpscQueue final {
 
     [[nodiscard]] bool push(const T &t) {
         const unsigned currentWriteIndex = writeIndex_.load(std::memory_order_relaxed);
-        const unsigned nextWriteIndex = next(currentWriteIndex);
+        const unsigned nextWriteIndex    = next(currentWriteIndex);
         // false : queue is full
         if (nextWriteIndex == readIndex_.load(std::memory_order_acquire)) [[unlikely]] {
             return false;
@@ -312,17 +323,19 @@ template <class T, unsigned NumberOfElements> class SpscQueue final {
 
   private:
     AlignedStorage items_[Capacity];
-    alignas(FalseSharingSize) std::atomic<unsigned> readIndex_ = 0;
+    alignas(FalseSharingSize) std::atomic<unsigned> readIndex_  = 0;
     alignas(FalseSharingSize) std::atomic<unsigned> writeIndex_ = 0;
 }; // class SpscQueue
 
 // Host Interface
 class MyHost : public Steinberg::Vst::IHostApplication {
   public:
-    MyHost() = default;
+    MyHost()          = default;
     virtual ~MyHost() = default;
 
   private:
+    uint32_t PLUGIN_API           addRef() override { return 1; }
+    uint32_t PLUGIN_API           release() override { return 1; }
     Steinberg::tresult PLUGIN_API queryInterface(const Steinberg::TUID tuid, void **obj) override {
         if (Steinberg::FUnknownPrivate::iidEqual(tuid, FUnknown::iid) ||
             Steinberg::FUnknownPrivate::iidEqual(tuid, IHostApplication::iid)) {
@@ -334,31 +347,27 @@ class MyHost : public Steinberg::Vst::IHostApplication {
     }
 
     Steinberg::tresult PLUGIN_API getName(Steinberg::Vst::String128 name) override {
-        return _snwprintf_s(reinterpret_cast<wchar_t *>(name), 128, 128, L"Minimal VST3 Host") > 0
-                   ? Steinberg::kResultTrue
-                   : Steinberg::kInternalError;
+        _snwprintf_s(reinterpret_cast<wchar_t *>(name), 128, 128, L"Minimal VST3 Host");
+        return Steinberg::kResultTrue;
     }
 
     Steinberg::tresult PLUGIN_API createInstance(Steinberg::TUID, Steinberg::TUID, void **) override {
         return Steinberg::kResultFalse;
     }
-
-    uint32_t PLUGIN_API addRef() override { return 1; }
-    uint32_t PLUGIN_API release() override { return 1; }
 }; // class MyHost
 
 // Component Handler Interface
 class MyComponentHandler : public Steinberg::Vst::IComponentHandler {
   public:
-    MyComponentHandler() = default;
+    MyComponentHandler()          = default;
     virtual ~MyComponentHandler() = default;
 
   private:
+    uint32_t PLUGIN_API           addRef() override { return 1; }
+    uint32_t PLUGIN_API           release() override { return 1; }
     Steinberg::tresult PLUGIN_API beginEdit(Steinberg::Vst::ParamID) override { return Steinberg::kResultOk; }
-
     Steinberg::tresult PLUGIN_API endEdit(Steinberg::Vst::ParamID) override { return Steinberg::kResultOk; }
     Steinberg::tresult PLUGIN_API restartComponent(int32_t) override { return Steinberg::kResultOk; }
-
     Steinberg::tresult PLUGIN_API performEdit(Steinberg::Vst::ParamID, Steinberg::Vst::ParamValue) override {
         return Steinberg::kResultOk;
     }
@@ -371,19 +380,18 @@ class MyComponentHandler : public Steinberg::Vst::IComponentHandler {
         *obj = nullptr;
         return Steinberg::kNoInterface;
     }
-
-    uint32_t PLUGIN_API addRef() override { return 1; }
-    uint32_t PLUGIN_API release() override { return 1; }
 }; // class MyComponentHandler
 
 // Plugin GUI Frame Interface
 class MyPlugFrame : public Steinberg::IPlugFrame {
   public:
-    MyPlugFrame() = default;
+    MyPlugFrame()          = default;
     virtual ~MyPlugFrame() = default;
     std::function<Steinberg::tresult(Steinberg::IPlugView *view, Steinberg::ViewRect *newSize)> resizeViewCallback_;
 
   private:
+    uint32_t PLUGIN_API           addRef() override { return 1; }
+    uint32_t PLUGIN_API           release() override { return 1; }
     Steinberg::tresult PLUGIN_API resizeView(Steinberg::IPlugView *view, Steinberg::ViewRect *newSize) override {
         return resizeViewCallback_ ? resizeViewCallback_(view, newSize) : Steinberg::kResultFalse;
     }
@@ -396,16 +404,13 @@ class MyPlugFrame : public Steinberg::IPlugFrame {
         *obj = nullptr;
         return Steinberg::kNoInterface;
     }
-
-    uint32_t PLUGIN_API addRef() override { return 1; }
-    uint32_t PLUGIN_API release() override { return 1; }
 }; // class MyPlugFrame
 
 // Wrapper for the Plugin DLL
 class Vst3Dll final {
   public:
-    Vst3Dll() = default;
-    Vst3Dll(const Vst3Dll &) = delete;
+    Vst3Dll()                           = default;
+    Vst3Dll(const Vst3Dll &)            = delete;
     Vst3Dll &operator=(const Vst3Dll &) = delete;
     ~Vst3Dll() { free(); }
 
@@ -418,7 +423,7 @@ class Vst3Dll final {
             MY_ERROR(L"GetProcAddress('GetPluginFactory'), %s\n", dllPath.c_str());
             return nullptr;
         } else {
-            using GetPluginFactoryProc = Steinberg::IPluginFactory *(PLUGIN_API *)();
+            using GetPluginFactoryProc  = Steinberg::IPluginFactory *(PLUGIN_API *)();
             const auto getPluginFactory = reinterpret_cast<GetPluginFactoryProc>(p);
             return getPluginFactory();
         }
@@ -430,24 +435,40 @@ class Vst3Dll final {
             FreeLibrary(std::exchange(hModule_, nullptr));
         }
     }
+
     HMODULE hModule_ = nullptr;
 }; // class Vst3Dll
 
 // Class that holds the plugin and manages audio processing and GUI
 class Vst3Plugin final {
   public:
+    struct InitParams {
+        unsigned                          index;
+        std::filesystem::path             pluginPath;
+        Steinberg::Vst::IHostApplication *hostApplication;
+        int                               bufferSize;
+        double                            sampleRate;
+    };
+
+    struct ProcessArgs {
+        std::span<float *>          vstInChannelPtrs;
+        std::span<float *>          vstOutChannelPtrs;
+        unsigned                    nSamples;
+        double                      sampleRate;
+        double                      tempo;
+        Steinberg::Vst::IEventList *inputEvents;
+        Steinberg::Vst::IEventList *outputEvents;
+        double                      ppqPosition;
+    };
     using EventQueue = SpscQueue<Steinberg::Vst::Event, 4096>;
-    EventQueue &getEventQueue() { return eventQueue_; }
+
+    Vst3Plugin(const InitParams &initParams) { init(initParams); }
+    ~Vst3Plugin() { cleanup(); }
+
+    EventQueue        &getEventQueue() { return eventQueue_; }
     [[nodiscard]] bool hasEventOutput() const { return hasEventOutput_; }
     [[nodiscard]] bool good() const { return initialized_; }
     [[nodiscard]] bool isEffect() const { return isEffect_; }
-
-    Vst3Plugin(const unsigned index, const std::filesystem::path &pluginPath,
-               Steinberg::Vst::IHostApplication *hostApplication, const int bufferSize, const double sampleRate) {
-        init(index, pluginPath, hostApplication, bufferSize, sampleRate);
-    }
-
-    ~Vst3Plugin() { cleanup(); }
 
     // Callback when the plugin side requests a GUI resize
     Steinberg::tresult resizeView(const Steinberg::ViewRect *newSize) const {
@@ -455,8 +476,8 @@ class Vst3Plugin final {
         if (!hWnd) {
             return Steinberg::kResultFalse;
         }
-        RECT rc = {0, 0, newSize->right - newSize->left, newSize->bottom - newSize->top};
-        const auto style = static_cast<DWORD>(GetWindowLongPtrW(hWnd, GWL_STYLE));
+        RECT       rc      = {0, 0, newSize->right - newSize->left, newSize->bottom - newSize->top};
+        const auto style   = static_cast<DWORD>(GetWindowLongPtrW(hWnd, GWL_STYLE));
         const auto exStyle = static_cast<DWORD>(GetWindowLongPtrW(hWnd, GWL_EXSTYLE));
         AdjustWindowRectExForDpi(&rc, style, FALSE, exStyle, GetDpiForWindow(hWnd));
         constexpr auto uFlags = SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED;
@@ -464,45 +485,43 @@ class Vst3Plugin final {
         return Steinberg::kResultOk;
     }
 
-    void audioThreadVstRefill(                      //
-        const std::span<float *> vstInChannelPtrs,  //
-        const std::span<float *> vstOutChannelPtrs, //
-        const unsigned nSamples,                    //
-        const double sampleRate,                    //
-        const double tempo,                         //
-        Steinberg::Vst::IEventList *inputEvents,    //
-        Steinberg::Vst::IEventList *outputEvents,   //
-        const double ppqPosition                    //
-    ) const {
-        // Input Bus Setup
-        Steinberg::Vst::AudioBusBuffers inBus = {};
-        inBus.numChannels = isEffect_ ? static_cast<int32_t>(vstInChannelPtrs.size()) : 0;
-        inBus.channelBuffers32 = isEffect_ ? std::data(vstInChannelPtrs) : nullptr;
+    void audioThreadVstProcess(const ProcessArgs &processArgs) const {
+        const std::span<float *>    vstInChannelPtrs  = processArgs.vstInChannelPtrs;
+        const std::span<float *>    vstOutChannelPtrs = processArgs.vstOutChannelPtrs;
+        const unsigned              nSamples          = processArgs.nSamples;
+        const double                sampleRate        = processArgs.sampleRate;
+        const double                tempo             = processArgs.tempo;
+        Steinberg::Vst::IEventList *inputEvents       = processArgs.inputEvents;
+        Steinberg::Vst::IEventList *outputEvents      = processArgs.outputEvents;
+        const double                ppqPosition       = processArgs.ppqPosition;
 
-        // Output Bus Setup
+        Steinberg::Vst::AudioBusBuffers inpBus = {};
+        inpBus.numChannels                     = isEffect_ ? static_cast<int32_t>(vstInChannelPtrs.size()) : 0;
+        inpBus.channelBuffers32                = isEffect_ ? std::data(vstInChannelPtrs) : nullptr;
+
         Steinberg::Vst::AudioBusBuffers outBus = {};
-        outBus.numChannels = static_cast<int32_t>(vstOutChannelPtrs.size());
-        outBus.channelBuffers32 = std::data(vstOutChannelPtrs);
+        outBus.numChannels                     = static_cast<int32_t>(vstOutChannelPtrs.size());
+        outBus.channelBuffers32                = std::data(vstOutChannelPtrs);
 
         Steinberg::Vst::ProcessContext context = {
             .state = Steinberg::Vst::ProcessContext::kPlaying | Steinberg::Vst::ProcessContext::kTempoValid |
                      Steinberg::Vst::ProcessContext::kProjectTimeMusicValid,
-            .sampleRate = sampleRate,
+            .sampleRate       = sampleRate,
             .projectTimeMusic = ppqPosition,
-            .tempo = tempo,
+            .tempo            = tempo,
         };
 
         Steinberg::Vst::ProcessData vstProcessData = {};
-        vstProcessData.processMode = Steinberg::Vst::kRealtime;
-        vstProcessData.symbolicSampleSize = Steinberg::Vst::kSample32;
-        vstProcessData.numInputs = inBus.numChannels > 0 ? 1 : 0;
-        vstProcessData.inputs = inBus.numChannels > 0 ? &inBus : nullptr;
-        vstProcessData.numOutputs = 1;
-        vstProcessData.outputs = &outBus;
-        vstProcessData.inputEvents = inputEvents;
-        vstProcessData.outputEvents = outputEvents;
-        vstProcessData.processContext = &context;
-        vstProcessData.numSamples = static_cast<int>(nSamples);
+        vstProcessData.processMode                 = Steinberg::Vst::kRealtime;
+        vstProcessData.symbolicSampleSize          = Steinberg::Vst::kSample32;
+        vstProcessData.numInputs                   = inpBus.numChannels > 0 ? 1 : 0;
+        vstProcessData.inputs                      = inpBus.numChannels > 0 ? &inpBus : nullptr;
+        vstProcessData.numOutputs                  = 1;
+        vstProcessData.outputs                     = &outBus;
+        vstProcessData.inputEvents                 = inputEvents;
+        vstProcessData.outputEvents                = outputEvents;
+        vstProcessData.processContext              = &context;
+        vstProcessData.numSamples                  = static_cast<int>(nSamples);
         vstAudioProcessor_->process(vstProcessData);
     }
 
@@ -516,18 +535,16 @@ class Vst3Plugin final {
         return u0 == u1;
     }
 
-    void init(const unsigned index, const std::filesystem::path &pluginPath,
-              Steinberg::Vst::IHostApplication *hostApplication, const int bufferSize, const double samplesPerSec) {
-        pluginIndex_ = index;
-        vst3DllPath_ = pluginPath;
+    void init(const InitParams &initParams) {
+        vst3DllPath_ = initParams.pluginPath;
 
         // The sequence for initialization and setup is complex.
         // Refer to the left side (downward arrows) of: Audio Processor Call Sequence
         // https://steinbergmedia.github.io/vst3_dev_portal/pages/Technical+Documentation/Workflow+Diagrams/Audio+Processor+Call+Sequence.html
         {
-            auto *const pluginFactory = vst3Dll_.load(pluginPath);
+            auto *const pluginFactory = vst3Dll_.load(vst3DllPath_);
             if (!pluginFactory) {
-                return MY_ERROR(L"pluginPath=%s, vst3Dll_.load()\n", pluginPath.c_str());
+                return MY_ERROR(L"pluginPath=%s, vst3Dll_.load()\n", vst3DllPath_.c_str());
             }
 
             // Create Component (Audio Engine / Processor)
@@ -543,12 +560,12 @@ class Vst3Plugin final {
                 }
             }
             if (!vstComponent_) {
-                return MY_ERROR(L"pluginPath=%s, vstComponent_ == %p\n", pluginPath.c_str(), vstComponent_.get());
+                return MY_ERROR(L"pluginPath=%s, vstComponent_ == %p\n", vst3DllPath_.c_str(), vstComponent_.get());
             }
 
             // Initialize Component. IComponent::initialize must be called first
-            vstComponent_->initialize(hostApplication);
-            isEffect_ = vstComponent_->getBusCount(Steinberg::Vst::kAudio, Steinberg::Vst::kInput) > 0;
+            vstComponent_->initialize(initParams.hostApplication);
+            isEffect_       = vstComponent_->getBusCount(Steinberg::Vst::kAudio, Steinberg::Vst::kInput) > 0;
             hasEventOutput_ = vstComponent_->getBusCount(Steinberg::Vst::kEvent, Steinberg::Vst::kOutput) > 0;
 
             // Create GUI Controller (Edit Controller)
@@ -556,54 +573,54 @@ class Vst3Plugin final {
                 pluginFactory->createInstance(id, Steinberg::Vst::IEditController::iid,
                                               reinterpret_cast<void **>(&vstEditController_));
             }
-            if (!vstEditController_) {
-                // If the controller isn't created yet, check if the component itself
-                // implements it
-                vstComponent_->queryInterface(Steinberg::Vst::IEditController::iid,
-                                              reinterpret_cast<void **>(&vstEditController_));
-            }
-            if (!vstEditController_) {
-                return MY_ERROR(L"pluginPath=%s, vstEditController_=%p\n", pluginPath.c_str(),
-                                vstEditController_.get());
-            }
-            vstEditController_->initialize(hostApplication);
-            vstEditController_->setComponentHandler(&myComponentHandler_);
+        }
+        if (!vstEditController_) {
+            // If the controller isn't created yet, check if the component itself
+            // implements it
+            vstComponent_->queryInterface(Steinberg::Vst::IEditController::iid,
+                                          reinterpret_cast<void **>(&vstEditController_));
+        }
+        if (!vstEditController_) {
+            return MY_ERROR(L"pluginPath=%s, vstEditController_=%p\n", vst3DllPath_.c_str(), vstEditController_.get());
+        }
+        vstEditController_->initialize(initParams.hostApplication);
+        vstEditController_->setComponentHandler(&myComponentHandler_);
 
-            // Connection for parameter synchronization between the processing side and UI side Connection is not needed
-            // if they are the same object (Single Component)
-            if (!isSameObject(vstComponent_, vstEditController_)) {
-                Steinberg::IPtr<Steinberg::Vst::IConnectionPoint> cp1;
-                vstComponent_->queryInterface(Steinberg::Vst::IConnectionPoint::iid, reinterpret_cast<void **>(&cp1));
-                if (!cp1) {
-                    return MY_ERROR(L"pluginPath=%s, cp1=%p\n", pluginPath.c_str(), cp1.get());
-                }
-
-                Steinberg::IPtr<Steinberg::Vst::IConnectionPoint> cp2;
-                vstEditController_->queryInterface(Steinberg::Vst::IConnectionPoint::iid,
-                                                   reinterpret_cast<void **>(&cp2));
-                if (!cp2) {
-                    return MY_ERROR(L"pluginPath=%s, cp2=%p\n", pluginPath.c_str(), cp2.get());
-                }
-
-                cp1->connect(cp2);
-                cp2->connect(cp1);
+        // Connection for parameter synchronization between the processing side and UI side Connection is not needed
+        // if they are the same object (Single Component)
+        if (!isSameObject(vstComponent_, vstEditController_)) {
+            Steinberg::IPtr<Steinberg::Vst::IConnectionPoint> cp1;
+            vstComponent_->queryInterface(Steinberg::Vst::IConnectionPoint::iid, reinterpret_cast<void **>(&cp1));
+            if (!cp1) {
+                return MY_ERROR(L"pluginPath=%s, cp1=%p\n", vst3DllPath_.c_str(), cp1.get());
             }
+
+            Steinberg::IPtr<Steinberg::Vst::IConnectionPoint> cp2;
+            vstEditController_->queryInterface(Steinberg::Vst::IConnectionPoint::iid, reinterpret_cast<void **>(&cp2));
+            if (!cp2) {
+                return MY_ERROR(L"pluginPath=%s, cp2=%p\n", vst3DllPath_.c_str(), cp2.get());
+            }
+
+            cp1->connect(cp2);
+            cp2->connect(cp1);
         }
 
         vstComponent_->queryInterface(Steinberg::Vst::IAudioProcessor::iid,
                                       reinterpret_cast<void **>(&vstAudioProcessor_));
         if (!vstAudioProcessor_) {
-            return MY_ERROR(L"pluginPath=%s, vstComponent_->queryInterface()\n", pluginPath.c_str());
+            return MY_ERROR(L"pluginPath=%s, vstComponent_->queryInterface()\n", vst3DllPath_.c_str());
         }
 
         {
             constexpr Steinberg::Vst::SpeakerArrangement speakerArr = Steinberg::Vst::SpeakerArr::kStereo;
-            Steinberg::Vst::SpeakerArrangement speakerIn = isEffect_ ? speakerArr : 0;
-            Steinberg::Vst::SpeakerArrangement speakerOut = speakerArr;
+            Steinberg::Vst::SpeakerArrangement           speakerIn  = isEffect_ ? speakerArr : 0;
+            Steinberg::Vst::SpeakerArrangement           speakerOut = speakerArr;
             vstAudioProcessor_->setBusArrangements(&speakerIn, speakerIn != 0, &speakerOut, speakerOut != 0);
-            Steinberg::Vst::ProcessSetup setup = {Steinberg::Vst::kRealtime, Steinberg::Vst::kSample32, bufferSize,
-                                                  samplesPerSec};
-            vstAudioProcessor_->setupProcessing(setup);
+            Steinberg::Vst::ProcessSetup processSetup = {.processMode        = Steinberg::Vst::kRealtime,
+                                                         .symbolicSampleSize = Steinberg::Vst::kSample32,
+                                                         .maxSamplesPerBlock = initParams.bufferSize,
+                                                         .sampleRate         = initParams.sampleRate};
+            vstAudioProcessor_->setupProcessing(processSetup);
         }
 
         // Activate Buses
@@ -617,7 +634,7 @@ class Vst3Plugin final {
         // Create Editor Window
         plugView_ = vstEditController_->createView(Steinberg::Vst::ViewType::kEditor);
         if (!plugView_) {
-            return MY_ERROR(L"pluginPath=%s, vstEditController_->createView()\n", pluginPath.c_str());
+            return MY_ERROR(L"pluginPath=%s, vstEditController_->createView()\n", vst3DllPath_.c_str());
         }
         plugView_->setFrame(&myPlugFrame_);
 
@@ -625,9 +642,9 @@ class Vst3Plugin final {
 
         {
             const WNDCLASSW wc = {
-                .lpfnWndProc = s_wndProc,
-                .hInstance = GetModuleHandle(nullptr),
-                .hCursor = LoadCursor(nullptr, IDC_ARROW),
+                .lpfnWndProc   = s_wndProc,
+                .hInstance     = GetModuleHandle(nullptr),
+                .hCursor       = LoadCursor(nullptr, IDC_ARROW),
                 .lpszClassName = L"MinimalVST3HostWindow",
             };
             RegisterClassW(&wc);
@@ -635,11 +652,11 @@ class Vst3Plugin final {
             Steinberg::ViewRect viewRect;
             plugView_->getSize(&viewRect);
 
-            RECT rc = {0, 0, viewRect.right - viewRect.left, viewRect.bottom - viewRect.top};
+            RECT            rc    = {0, 0, viewRect.right - viewRect.left, viewRect.bottom - viewRect.top};
             constexpr DWORD style = WS_OVERLAPPEDWINDOW;
             AdjustWindowRectExForDpi(&rc, style, FALSE, 0, GetDpiForSystem());
 
-            const std::wstring caption = std::wstring(L"[#") + std::to_wstring(pluginIndex_) + L"] " + name_;
+            const std::wstring caption = std::wstring(L"[#") + std::to_wstring(initParams.index) + L"] " + name_;
 
             hWnd_ =
                 CreateWindowExW(0, wc.lpszClassName, caption.c_str(), style | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT,
@@ -647,12 +664,12 @@ class Vst3Plugin final {
         }
 
         if (plugView_->attached(hWnd_, Steinberg::kPlatformTypeHWND) != Steinberg::kResultOk) {
-            return MY_ERROR(L"pluginPath=%s, plugView_->attached()\n", pluginPath.c_str());
+            return MY_ERROR(L"pluginPath=%s, plugView_->attached()\n", vst3DllPath_.c_str());
         }
 
         initialized_ = true;
         MY_TRACE(L"\"%s\" (%s) is loaded from \"%s\"\n", name_.c_str(), isEffect() ? L"effect" : L"instrument",
-                 pluginPath.c_str());
+                 vst3DllPath_.c_str());
     }
 
     void cleanup() const {
@@ -683,27 +700,27 @@ class Vst3Plugin final {
         if (GetKeyState(VK_ESCAPE) & 0x8000) {
             PostQuitMessage(0);
         }
-        for (auto &[vk, key] : keyMap) {
-            if (const bool newStatus = (GetKeyState(vk) & 0x8000) != 0; key.status_ != newStatus) {
-                key.status_ = newStatus;
+        for (Key &key : keys) {
+            if (const bool newStatus = (GetKeyState(key.vk_) & 0x8000) != 0; key.status_ != newStatus) {
+                key.status_             = newStatus;
                 Steinberg::Vst::Event e = {
-                    .busIndex = 0,
+                    .busIndex     = 0,
                     .sampleOffset = 0,
-                    .ppqPosition = 0,
-                    .flags = Steinberg::Vst::Event::kIsLive,
+                    .ppqPosition  = 0,
+                    .flags        = Steinberg::Vst::Event::kIsLive,
                 };
                 if (key.status_) {
-                    e.type = Steinberg::Vst::Event::kNoteOnEvent;
-                    e.noteOn.channel = 0;
-                    e.noteOn.pitch = key.midiNote_;
+                    e.type            = Steinberg::Vst::Event::kNoteOnEvent;
+                    e.noteOn.channel  = 0;
+                    e.noteOn.pitch    = key.midiNote_;
                     e.noteOn.velocity = 1.0f;
-                    e.noteOn.noteId = key.midiNote_;
+                    e.noteOn.noteId   = key.midiNote_;
                 } else {
-                    e.type = Steinberg::Vst::Event::kNoteOffEvent;
-                    e.noteOff.channel = 0;
-                    e.noteOff.pitch = key.midiNote_;
+                    e.type             = Steinberg::Vst::Event::kNoteOffEvent;
+                    e.noteOff.channel  = 0;
+                    e.noteOff.pitch    = key.midiNote_;
                     e.noteOff.velocity = 0.0f;
-                    e.noteOff.noteId = key.midiNote_;
+                    e.noteOff.noteId   = key.midiNote_;
                 }
                 MY_TRACE(L"Note %-3s:  %3d\n", key.status_ ? L"On" : L"Off", key.midiNote_);
                 if (!eventQueue_.push(e)) {
@@ -751,40 +768,40 @@ class Vst3Plugin final {
     }
 
     struct Key {
+        const int     vk_{};
         const int16_t midiNote_{};
-        bool status_{false};
+        bool          status_{false};
     };
 
-    EventQueue eventQueue_;
-    Steinberg::IPtr<Steinberg::Vst::IComponent> vstComponent_;
+    EventQueue                                       eventQueue_;
+    Steinberg::IPtr<Steinberg::Vst::IComponent>      vstComponent_;
     Steinberg::IPtr<Steinberg::Vst::IEditController> vstEditController_;
     Steinberg::IPtr<Steinberg::Vst::IAudioProcessor> vstAudioProcessor_;
-    Steinberg::IPtr<Steinberg::IPlugView> plugView_;
-    MyComponentHandler myComponentHandler_;
-    Vst3Dll vst3Dll_;
-    HWND hWnd_ = nullptr;
+    Steinberg::IPtr<Steinberg::IPlugView>            plugView_;
+    MyComponentHandler                               myComponentHandler_;
+    Vst3Dll                                          vst3Dll_;
+    HWND                                             hWnd_ = nullptr;
     // clang-format off
-    std::map<int, Key> keyMap{
-            {'2',{61}},{'3',{63}},           {'5',{66}},{'6',{68}},{'7',{70}},
-        {'Q',{60}},{'W',{62}},{'E',{64}},{'R',{65}},{'T',{67}},{'Y',{69}},{'U',{71}}, {'I',{72}},
+    std::vector<Key> keys{
+            {'2',61},{'3',63},         {'5',66},{'6',68},{'7',70},
+        {'Q',60},{'W',62},{'E',64},{'R',65},{'T',67},{'Y',69},{'U',71}, {'I',72},
 
-            {'S',{49}},{'D',{51}},           {'G',{54}},{'H',{56}},{'J',{58}},
-        {'Z',{48}},{'X',{50}},{'C',{52}},{'V',{53}},{'B',{55}},{'N',{57}},{'M',{59}}, {VK_OEM_COMMA,{60}},
+            {'S',49},{'D',51},         {'G',54},{'H',56},{'J',58},
+        {'Z',48},{'X',50},{'C',52},{'V',53},{'B',55},{'N',57},{'M',59}, {VK_OEM_COMMA,60},
     };
     // clang-format on
     std::filesystem::path vst3DllPath_;
-    std::wstring name_;
-    MyPlugFrame myPlugFrame_;
-    unsigned pluginIndex_ = 0;
-    bool isEffect_ = false;
-    bool hasEventOutput_ = false;
-    bool initialized_ = false;
+    std::wstring          name_;
+    MyPlugFrame           myPlugFrame_;
+    bool                  isEffect_       = false;
+    bool                  hasEventOutput_ = false;
+    bool                  initialized_    = false;
 }; // class Vst3Plugin
 
 // Simple event list for passing events within AppMain::audioThreadAppRefill
 class MySimpleEventList : public Steinberg::Vst::IEventList {
   public:
-    MySimpleEventList() = default;
+    MySimpleEventList()          = default;
     virtual ~MySimpleEventList() = default;
     void clear() { eventCount_ = 0; }
 
@@ -797,7 +814,9 @@ class MySimpleEventList : public Steinberg::Vst::IEventList {
     }
 
   private:
-    int32_t PLUGIN_API getEventCount() override { return eventCount_; }
+    uint32_t PLUGIN_API addRef() override { return 1; }
+    uint32_t PLUGIN_API release() override { return 1; }
+    int32_t PLUGIN_API  getEventCount() override { return eventCount_; }
 
     Steinberg::tresult PLUGIN_API getEvent(const Steinberg::int32 index, Steinberg::Vst::Event &e) override {
         if (index < 0 || index >= eventCount_) {
@@ -817,18 +836,15 @@ class MySimpleEventList : public Steinberg::Vst::IEventList {
         return Steinberg::kNoInterface;
     }
 
-    uint32_t PLUGIN_API addRef() override { return 1; }
-    uint32_t PLUGIN_API release() override { return 1; }
-
-    static constexpr int32_t MaxEvents = 1024;
-    int32_t eventCount_ = 0;
-    std::array<Steinberg::Vst::Event, MaxEvents> events_ = {};
+    static constexpr int32_t                     MaxEvents   = 1024;
+    int32_t                                      eventCount_ = 0;
+    std::array<Steinberg::Vst::Event, MaxEvents> events_     = {};
 }; // class MySimpleEventList
 
 // Main Application
 class AppMain final {
   public:
-    AppMain() = default;
+    AppMain()  = default;
     ~AppMain() = default;
 
     int mainLoop() {
@@ -837,12 +853,15 @@ class AppMain final {
             MY_ERROR(L"! wasapi.good()\n");
             return EXIT_FAILURE;
         }
-
         for (const auto &pluginPath : global_pluginPaths) {
-            if (auto p = std::make_unique<Vst3Plugin>(static_cast<unsigned>(vst3Plugins_.size()),
-                                                      std::filesystem::absolute(pluginPath), &myHost_,
-                                                      wasapi.getBufferSize(), wasapi.getSampleRate());
-                p->good()) {
+            const Vst3Plugin::InitParams initParams{
+                .index           = static_cast<unsigned>(vst3Plugins_.size()),
+                .pluginPath      = std::filesystem::absolute(pluginPath),
+                .hostApplication = &myHost_,
+                .bufferSize      = static_cast<int>(wasapi.getBufferSize()),
+                .sampleRate      = wasapi.getSampleRate(),
+            };
+            if (auto p = std::make_unique<Vst3Plugin>(initParams); p->good()) {
                 vst3Plugins_.push_back(std::move(p));
             }
         }
@@ -850,26 +869,17 @@ class AppMain final {
             MY_ERROR(L"vst3Plugins_.empty()\n");
             return EXIT_FAILURE;
         }
-
-        tempo_ = 120.0;
-        currentPpq_ = 0.0;
-        maxSamples_ = wasapi.getBufferSize();
-        maxChannels_ = wasapi.getNumChannels();
-        inpPtrs_.resize(maxChannels_);
-        outPtrs_.resize(maxChannels_);
-        pingPongAudioBuffers_[0].resize(maxSamples_ * maxChannels_);
-        pingPongAudioBuffers_[1].resize(maxSamples_ * maxChannels_);
+        inpPtrs_.resize(wasapi.getNumChannels());
+        outPtrs_.resize(wasapi.getNumChannels());
+        pingPongAudioBuffers_[0].resize(wasapi.getBufferSize() * wasapi.getNumChannels());
+        pingPongAudioBuffers_[1].resize(wasapi.getBufferSize() * wasapi.getNumChannels());
 
         // Callback from the audio thread during WASAPI updates. Calls the process methods of each plugin.
-        wasapi.setAudioThreadRefillCallback([&](const std::span<float> wasapiInterleavedBuf, const unsigned nChannels,
-                                                const unsigned nSamples, const double sampleRate) {
-            return audioThreadAppRefill(wasapiInterleavedBuf, nChannels, nSamples, sampleRate);
-        });
-
+        wasapi.setAudioThreadRefillCallback([&](const Wasapi::RefillArgs &x) { return audioThreadAppRefill(x); });
         {
-            // audioThread handles WASAPI updates. Triggers audioThreadRefill via the refill callback above.
+            // audioThread handles WASAPI updates. Triggers audioThreadAppRefill via the refill callback above.
             std::thread audioThread([&] { wasapi.audioThreadProc(); });
-            MSG msg;
+            MSG         msg;
             while (GetMessageW(&msg, nullptr, 0, 0)) {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
@@ -882,23 +892,11 @@ class AppMain final {
     }
 
   private:
-    double tempo_ = 120.0;
-    double currentPpq_ = 0.0;
-    unsigned maxSamples_ = 0;
-    unsigned maxChannels_ = 0;
-    MyHost myHost_;
-    std::vector<std::unique_ptr<Vst3Plugin>> vst3Plugins_;
-    std::array<std::vector<float>, 2> pingPongAudioBuffers_;
-    std::vector<float *> inpPtrs_;
-    std::vector<float *> outPtrs_;
-    std::array<MySimpleEventList, 2> pingPongEventLists_;
-
-    void audioThreadAppRefill(const std::span<float> wasapiInterleavedBuf, const unsigned nChannels,
-                              const unsigned nSamples, const double sampleRate) {
-        pingPongEventLists_[0].clear();
-        pingPongEventLists_[1].clear();
-        MySimpleEventList *inpEvents = &pingPongEventLists_[0];
-        MySimpleEventList *outEvents = &pingPongEventLists_[1];
+    void audioThreadAppRefill(const Wasapi::RefillArgs &refillArgs) {
+        pingPongEvents_[0].clear();
+        pingPongEvents_[1].clear();
+        MySimpleEventList *inpEvents = &pingPongEvents_[0];
+        MySimpleEventList *outEvents = &pingPongEvents_[1];
 
         // Retrieve events from UI
         for (const std::unique_ptr<Vst3Plugin> &vst3Plugin : vst3Plugins_) {
@@ -913,19 +911,28 @@ class AppMain final {
         float *outPtr = pingPongAudioBuffers_[1].data();
 
         // Zero-clear the initial input buffer
-        const unsigned bufSize = nSamples * nChannels;
+        const unsigned bufSize = refillArgs.nSamples * refillArgs.nChannels;
         memset(inpPtr, 0, sizeof(inpPtr[0]) * bufSize);
 
         // Process plugins in series
         for (const std::unique_ptr<Vst3Plugin> &vst3Plugin : vst3Plugins_) {
             // Set I/O buffer addresses for each channel. inpPtr points to the output of the previous plugin.
-            for (unsigned iChannel = 0; iChannel < nChannels; ++iChannel) {
-                inpPtrs_[iChannel] = inpPtr + iChannel * nSamples;
-                outPtrs_[iChannel] = outPtr + iChannel * nSamples;
+            for (unsigned iChannel = 0; iChannel < refillArgs.nChannels; ++iChannel) {
+                inpPtrs_[iChannel] = inpPtr + iChannel * refillArgs.nSamples;
+                outPtrs_[iChannel] = outPtr + iChannel * refillArgs.nSamples;
             }
 
-            vst3Plugin->audioThreadVstRefill(std::span(inpPtrs_), std::span(outPtrs_), nSamples, sampleRate, tempo_,
-                                             inpEvents, outEvents, currentPpq_);
+            const Vst3Plugin::ProcessArgs processArgs{
+                .vstInChannelPtrs  = std::span(inpPtrs_),
+                .vstOutChannelPtrs = std::span(outPtrs_),
+                .nSamples          = refillArgs.nSamples,
+                .sampleRate        = refillArgs.sampleRate,
+                .tempo             = tempo_,
+                .inputEvents       = inpEvents,
+                .outputEvents      = outEvents,
+                .ppqPosition       = currentPpq_,
+            };
+            vst3Plugin->audioThreadVstProcess(processArgs);
 
             // If the plugin outputs events, swap the event lists
             if (vst3Plugin->hasEventOutput()) {
@@ -933,7 +940,7 @@ class AppMain final {
                 inpEvents->clear();
                 // Swap event lists
                 std::swap(inpEvents, outEvents);
-                // At this point, inpEvents contains the event output from the previous plugin
+                // At this point, inpEvents contains the event output from the plugin just processed
             }
 
             // If the plugin is not an effect (e.g., an instrument), add its output to the input (summing)
@@ -949,15 +956,26 @@ class AppMain final {
         }
 
         // Write the final result into the WASAPI interleaved buffer
-        for (unsigned iSample = 0; iSample < nSamples; ++iSample) {
-            for (unsigned iChannel = 0; iChannel < nChannels; ++iChannel) {
-                wasapiInterleavedBuf[iSample * nChannels + iChannel] = inpPtr[iChannel * nSamples + iSample];
+        for (unsigned iSample = 0; iSample < refillArgs.nSamples; ++iSample) {
+            for (unsigned iChannel = 0; iChannel < refillArgs.nChannels; ++iChannel) {
+                const unsigned outIndex                   = iSample * refillArgs.nChannels + iChannel;
+                const unsigned inpIndex                   = iChannel * refillArgs.nSamples + iSample;
+                refillArgs.wasapiInterleavedBuf[outIndex] = inpPtr[inpIndex];
             }
         }
 
         // PPQ per second is (tempo / 60). PPQ per sample is that multiplied by (1 / sampleRate).
-        currentPpq_ += nSamples * tempo_ / 60.0 / sampleRate;
+        currentPpq_ += refillArgs.nSamples * tempo_ / 60.0 / refillArgs.sampleRate;
     }
+
+    double                                   tempo_      = 120.0;
+    double                                   currentPpq_ = 0.0;
+    MyHost                                   myHost_;
+    std::vector<std::unique_ptr<Vst3Plugin>> vst3Plugins_;
+    std::array<std::vector<float>, 2>        pingPongAudioBuffers_;
+    std::vector<float *>                     inpPtrs_;
+    std::vector<float *>                     outPtrs_;
+    std::array<MySimpleEventList, 2>         pingPongEvents_;
 }; // class AppMain
 
 int main() {
@@ -968,8 +986,7 @@ int main() {
         MY_ERROR(L"FAILED(0x%08x), CoInitializeEx()", hr);
     } else {
         try {
-            AppMain appMain;
-            result = appMain.mainLoop();
+            result = std::make_unique<AppMain>()->mainLoop();
         } catch (std::exception &e) {
             printf("Exception: %s\n", e.what());
         }
