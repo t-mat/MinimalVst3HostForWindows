@@ -8,8 +8,10 @@ Prerequisites
 - Windows 11 (x64)
 
 
-Building the project with portable mingw
+Building the project with portable MinGW
 ----------------------------------------
+
+This method doesn't require any external development tools.
 
 ```bat
 cmd.exe
