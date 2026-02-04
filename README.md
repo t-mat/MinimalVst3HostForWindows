@@ -58,7 +58,7 @@ How to Add VST3 Plugins
 -----------------------
 
 To load plugins, add the paths of your `.vst3` files to the `global_pluginPaths` vector
-defined near the top of `src/MinimalVst3HostForWindows.cpp`.
+defined near the top of [`src/MinimalVst3HostForWindows.cpp`](src/MinimalVst3HostForWindows.cpp).
 You can use absolute paths or relative paths combined with `localVst3Dir` or `commonVst3Dir`.
 
 
