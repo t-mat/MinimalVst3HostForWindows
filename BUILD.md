@@ -8,12 +8,10 @@ Prerequisites
 - Windows 11 (x64)
 - Visual Studio 2026
   - Visual C++
-- `git`
-- `cmake` (if you need)
 
 
-Building the project with batch file
-------------------------------------
+Building the project
+--------------------
 
 ```bat
 cmd.exe
