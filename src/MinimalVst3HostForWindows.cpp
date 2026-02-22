@@ -717,7 +717,7 @@ class Vst3Plugin final {
         if (processing_ && vstAudioProcessor_) {
             vstAudioProcessor_->setProcessing(false);
         }
-        if (!isSameObject(vstComponent_, vstEditController_)) {
+        if (vstComponent_ && vstEditController_ && !isSameObject(vstComponent_, vstEditController_)) {
             Steinberg::IPtr<Steinberg::Vst::IConnectionPoint> cp1;
             vstComponent_->queryInterface(Steinberg::Vst::IConnectionPoint::iid, reinterpret_cast<void **>(&cp1));
             if (!cp1) {
