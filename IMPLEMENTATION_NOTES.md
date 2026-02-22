@@ -5,14 +5,17 @@
 Class Summaries & Notes
 -----------------------
 
-|Class       |Role            |Implementation Notes |
-|:---        |:---            |:--- |
-|`AppMain`   |Application Root|Manages the main message loop and audio thread. Handles the Ping-Pong buffer logic and Event List swapping. |
-|`MyHost`    |Host Interface  |Implements `IHostApplication`. Minimal implementation required to pass `this` to plugins. Reference counting is dummy (always returns 1). |
-|`SpscQueue` |Lock-free Queue |Used for passing MIDI events from UI thread to Audio thread. Uses manual memory layout to prevent False Sharing. |
-|`Vst3Dll`   |DLL Loader      |RAII wrapper for `LoadLibrary` / `FreeLibrary`. Ensures `GetPluginFactory` is retrieved correctly. |
-|`Vst3Plugin`|Plugin Wrapper  |Encapsulates the lifecycle of a single VST3 plugin (DLL load -> Init -> Process -> Terminate). Handles the complex "Component/Controller" connection handshake. |
-|`Wasapi`    |Audio Driver    |Minimal wrapper for Windows WASAPI (Shared Mode). Provides the callback for the audio thread. |
+|Class                |Role               |Implementation Notes |
+|:---                 |:---               |:--- |
+|`AppMain`            |Application Root   |Manages the main message loop and audio thread. Handles the Ping-Pong buffer logic and Event List swapping. |
+|`MyHost`             |Host Interface     |Implements `IHostApplication`. Minimal implementation required to pass `this` to plugins. Reference counting is dummy (always returns 1). |
+|`MyComponentHandler` |Component Handler  |Implements `IComponentHandler`. Handles parameter editing and component restart requests. Minimal no-op implementation. |
+|`MyPlugFrame`        |Plugin GUI Frame   |Implements `IPlugFrame`. Handles plugin GUI resize requests via callback. |
+|`MySimpleEventList`  |Event Container    |Implements `IEventList`. Simple array-based event storage used for ping-pong event buffers. |
+|`SpscQueue`          |Lock-free Queue    |Used for passing MIDI events from UI thread to Audio thread. Uses manual memory layout to prevent False Sharing. |
+|`Vst3Dll`            |DLL Loader         |RAII wrapper for `LoadLibrary` / `FreeLibrary`. Ensures `GetPluginFactory` is retrieved correctly. |
+|`Vst3Plugin`         |Plugin Wrapper     |Encapsulates the lifecycle of a single VST3 plugin (DLL load -> Init -> Process -> Terminate). Handles the complex "Component/Controller" connection handshake. |
+|`Wasapi`             |Audio Driver       |Minimal wrapper for Windows WASAPI (Shared Mode). Provides the callback for the audio thread. |
 
 
 How to Add VST3 Plugins

@@ -78,7 +78,7 @@ Building the project in "Visual Studio Command Prompt"
 
 Prerequisites: Visual Studio
 
-Open the "x64 Native Tools Command Prompt for VS (2026)" from Windows Start Menu.  
+Open the "x64 Native Tools Command Prompt for VS" from Windows Start Menu.  
 Run the following commands to build and execute:
 
 ```bat

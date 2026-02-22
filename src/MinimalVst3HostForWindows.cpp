@@ -125,12 +125,11 @@ class Wasapi final {
         if (!initialized_) {
             return MY_ERROR(L"!initialized_\n");
         }
-        const HANDLE   events[]       = {hRefillEvent_, hCloseAudioThreadEvent};
-        const unsigned nChannels      = getNumChannels();
-        const auto     combinedBuffer = std::make_unique<float[]>(bufferSize_ * nChannels);
-        DWORD          taskIndex      = 0;
-        HANDLE         hTask          = nullptr;
-        HRESULT        hrCoInit       = E_UNEXPECTED;
+        const HANDLE   events[]  = {hRefillEvent_, hCloseAudioThreadEvent};
+        const unsigned nChannels = getNumChannels();
+        DWORD          taskIndex = 0;
+        HANDLE         hTask     = nullptr;
+        HRESULT        hrCoInit  = E_UNEXPECTED;
         if (FAILED(hrCoInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED))) {
             MY_ERROR(L"FAILED(0x%08x), CoInitializeEx\n", hrCoInit);
             goto end;
@@ -212,6 +211,30 @@ class Wasapi final {
             return MY_ERROR(L"FAILED(0x%08x), audioClient_->GetMixFormat()\n", hr);
         }
 
+        // Force IEEE float format for the audio buffer
+        if (pFormat_->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
+            auto *ext      = reinterpret_cast<WAVEFORMATEXTENSIBLE *>(pFormat_);
+            ext->SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+        } else {
+            pFormat_->wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
+        }
+        pFormat_->wBitsPerSample  = 32;
+        pFormat_->nBlockAlign     = pFormat_->nChannels * pFormat_->wBitsPerSample / 8;
+        pFormat_->nAvgBytesPerSec = pFormat_->nSamplesPerSec * pFormat_->nBlockAlign;
+
+        // Verify the device accepts this format in shared mode
+        WAVEFORMATEX *closestMatch = nullptr;
+        if (HRESULT hr = audioClient_->IsFormatSupported(AUDCLNT_SHAREMODE_SHARED, pFormat_, &closestMatch);
+            FAILED(hr)) {
+            if (closestMatch) {
+                CoTaskMemFree(closestMatch);
+            }
+            return MY_ERROR(L"FAILED(0x%08x), IEEE float 32-bit format not supported\n", hr);
+        }
+        if (closestMatch) {
+            CoTaskMemFree(closestMatch);
+        }
+
         if (HRESULT hr;
             FAILED(hr = audioClient_->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
                                                  hnsBufferDuration, 0, pFormat_, nullptr))) {
@@ -271,6 +294,10 @@ class Wasapi final {
 }; // class Wasapi
 
 // Thread-safe SPSC (Single Producer Single Consumer) queue
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4324) // structure was padded due to alignment specifier
+#endif
 template <class T, unsigned NumberOfElements> class SpscQueue final {
     static constexpr size_t Capacity         = NumberOfElements + 1;
     static constexpr size_t FalseSharingSize = std::hardware_destructive_interference_size;
@@ -326,6 +353,9 @@ template <class T, unsigned NumberOfElements> class SpscQueue final {
     alignas(FalseSharingSize) std::atomic<unsigned> readIndex_  = 0;
     alignas(FalseSharingSize) std::atomic<unsigned> writeIndex_ = 0;
 }; // class SpscQueue
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 // Host Interface
 class MyHost : public Steinberg::Vst::IHostApplication {
@@ -347,7 +377,7 @@ class MyHost : public Steinberg::Vst::IHostApplication {
     }
 
     Steinberg::tresult PLUGIN_API getName(Steinberg::Vst::String128 name) override {
-        _snwprintf_s(reinterpret_cast<wchar_t *>(name), 128, 128, L"Minimal VST3 Host");
+        _snwprintf_s(reinterpret_cast<wchar_t *>(name), 127, 127, L"Minimal VST3 Host");
         return Steinberg::kResultTrue;
     }
 
@@ -424,7 +454,7 @@ class Vst3Dll final {
             return nullptr;
         } else {
             using GetPluginFactoryProc  = Steinberg::IPluginFactory *(PLUGIN_API *)();
-            const auto getPluginFactory = reinterpret_cast<GetPluginFactoryProc>(p);
+            const auto getPluginFactory = reinterpret_cast<GetPluginFactoryProc>(reinterpret_cast<void *>(p));
             return getPluginFactory();
         }
     }
@@ -503,13 +533,12 @@ class Vst3Plugin final {
         outBus.numChannels                     = static_cast<int32_t>(vstOutChannelPtrs.size());
         outBus.channelBuffers32                = std::data(vstOutChannelPtrs);
 
-        Steinberg::Vst::ProcessContext context = {
-            .state = Steinberg::Vst::ProcessContext::kPlaying | Steinberg::Vst::ProcessContext::kTempoValid |
-                     Steinberg::Vst::ProcessContext::kProjectTimeMusicValid,
-            .sampleRate       = sampleRate,
-            .projectTimeMusic = ppqPosition,
-            .tempo            = tempo,
-        };
+        Steinberg::Vst::ProcessContext context = {};
+        context.state = Steinberg::Vst::ProcessContext::kPlaying | Steinberg::Vst::ProcessContext::kTempoValid |
+                        Steinberg::Vst::ProcessContext::kProjectTimeMusicValid;
+        context.sampleRate       = sampleRate;
+        context.projectTimeMusic = ppqPosition;
+        context.tempo            = tempo;
 
         Steinberg::Vst::ProcessData vstProcessData = {};
         vstProcessData.processMode                 = Steinberg::Vst::kRealtime;
@@ -542,7 +571,7 @@ class Vst3Plugin final {
         // Refer to the left side (downward arrows) of: Audio Processor Call Sequence
         // https://steinbergmedia.github.io/vst3_dev_portal/pages/Technical+Documentation/Workflow+Diagrams/Audio+Processor+Call+Sequence.html
         {
-            auto *const pluginFactory = vst3Dll_.load(vst3DllPath_);
+            Steinberg::IPtr<Steinberg::IPluginFactory> pluginFactory = vst3Dll_.load(vst3DllPath_);
             if (!pluginFactory) {
                 return MY_ERROR(L"pluginPath=%s, vst3Dll_.load()\n", vst3DllPath_.c_str());
             }
@@ -583,7 +612,9 @@ class Vst3Plugin final {
         if (!vstEditController_) {
             return MY_ERROR(L"pluginPath=%s, vstEditController_=%p\n", vst3DllPath_.c_str(), vstEditController_.get());
         }
-        vstEditController_->initialize(initParams.hostApplication);
+        if (!isSameObject(vstComponent_, vstEditController_)) {
+            vstEditController_->initialize(initParams.hostApplication);
+        }
         vstEditController_->setComponentHandler(&myComponentHandler_);
 
         // Connection for parameter synchronization between the processing side and UI side Connection is not needed
@@ -624,12 +655,17 @@ class Vst3Plugin final {
         }
 
         // Activate Buses
-        vstComponent_->activateBus(Steinberg::Vst::kAudio, Steinberg::Vst::kInput, 0, true);
-        vstComponent_->activateBus(Steinberg::Vst::kAudio, Steinberg::Vst::kOutput, 0, true);
-        vstComponent_->activateBus(Steinberg::Vst::kEvent, Steinberg::Vst::kInput, 0, true);
-        vstComponent_->activateBus(Steinberg::Vst::kEvent, Steinberg::Vst::kOutput, 0, true);
+        for (int type : {Steinberg::Vst::kAudio, Steinberg::Vst::kEvent}) {
+            for (int dir : {Steinberg::Vst::kInput, Steinberg::Vst::kOutput}) {
+                if (vstComponent_->getBusCount(type, dir) > 0) {
+                    vstComponent_->activateBus(type, dir, 0, true);
+                }
+            }
+        }
         vstComponent_->setActive(true);
+        activated_ = true;
         vstAudioProcessor_->setProcessing(true);
+        processing_ = true;
 
         // Create Editor Window
         plugView_ = vstEditController_->createView(Steinberg::Vst::ViewType::kEditor);
@@ -641,13 +677,12 @@ class Vst3Plugin final {
         myPlugFrame_.resizeViewCallback_ = [&](auto *, const Steinberg::ViewRect *vr) { return resizeView(vr); };
 
         {
-            const WNDCLASSW wc = {
-                .lpfnWndProc   = s_wndProc,
-                .hInstance     = GetModuleHandle(nullptr),
-                .hCursor       = LoadCursor(nullptr, IDC_ARROW),
-                .lpszClassName = L"MinimalVST3HostWindow",
-            };
-            RegisterClassW(&wc);
+            WNDCLASSW wc     = {};
+            wc.lpfnWndProc   = s_wndProc;
+            wc.hInstance     = GetModuleHandle(nullptr);
+            wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
+            wc.lpszClassName = L"MinimalVST3HostWindow";
+            (void)RegisterClassW(&wc);
 
             Steinberg::ViewRect viewRect;
             plugView_->getSize(&viewRect);
@@ -679,14 +714,32 @@ class Vst3Plugin final {
         if (plugView_) {
             plugView_->removed();
         }
-        if (vstAudioProcessor_) {
+        if (processing_ && vstAudioProcessor_) {
             vstAudioProcessor_->setProcessing(false);
         }
-        if (vstComponent_) {
+        if (!isSameObject(vstComponent_, vstEditController_)) {
+            Steinberg::IPtr<Steinberg::Vst::IConnectionPoint> cp1;
+            vstComponent_->queryInterface(Steinberg::Vst::IConnectionPoint::iid, reinterpret_cast<void **>(&cp1));
+            if (!cp1) {
+                return MY_ERROR(L"pluginPath=%s, cp1=%p\n", vst3DllPath_.c_str(), cp1.get());
+            }
+
+            Steinberg::IPtr<Steinberg::Vst::IConnectionPoint> cp2;
+            vstEditController_->queryInterface(Steinberg::Vst::IConnectionPoint::iid, reinterpret_cast<void **>(&cp2));
+            if (!cp2) {
+                return MY_ERROR(L"pluginPath=%s, cp2=%p\n", vst3DllPath_.c_str(), cp2.get());
+            }
+
+            cp2->disconnect(cp1);
+            cp1->disconnect(cp2);
+        }
+        if (activated_ && vstComponent_) {
             vstComponent_->setActive(false);
         }
         if (vstEditController_) {
-            vstEditController_->terminate();
+            if (!isSameObject(vstComponent_, vstEditController_)) {
+                vstEditController_->terminate();
+            }
         }
         if (vstComponent_) {
             vstComponent_->terminate();
@@ -703,12 +756,11 @@ class Vst3Plugin final {
         for (Key &key : keys) {
             if (const bool newStatus = (GetKeyState(key.vk_) & 0x8000) != 0; key.status_ != newStatus) {
                 key.status_             = newStatus;
-                Steinberg::Vst::Event e = {
-                    .busIndex     = 0,
-                    .sampleOffset = 0,
-                    .ppqPosition  = 0,
-                    .flags        = Steinberg::Vst::Event::kIsLive,
-                };
+                Steinberg::Vst::Event e = {};
+                e.busIndex              = 0;
+                e.sampleOffset          = 0;
+                e.ppqPosition           = 0;
+                e.flags                 = Steinberg::Vst::Event::kIsLive;
                 if (key.status_) {
                     e.type            = Steinberg::Vst::Event::kNoteOnEvent;
                     e.noteOn.channel  = 0;
@@ -795,6 +847,8 @@ class Vst3Plugin final {
     MyPlugFrame           myPlugFrame_;
     bool                  isEffect_       = false;
     bool                  hasEventOutput_ = false;
+    bool                  activated_      = false;
+    bool                  processing_     = false;
     bool                  initialized_    = false;
 }; // class Vst3Plugin
 
@@ -982,7 +1036,7 @@ int main() {
     MY_TRACE(L"Start\n");
     int result = EXIT_FAILURE;
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-    if (HRESULT hr; FAILED(hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED))) {
+    if (HRESULT hr; FAILED(hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) {
         MY_ERROR(L"FAILED(0x%08x), CoInitializeEx()", hr);
     } else {
         try {
