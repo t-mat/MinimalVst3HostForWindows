@@ -736,10 +736,8 @@ class Vst3Plugin final {
         if (activated_ && vstComponent_) {
             vstComponent_->setActive(false);
         }
-        if (vstEditController_) {
-            if (!isSameObject(vstComponent_, vstEditController_)) {
-                vstEditController_->terminate();
-            }
+        if (vstComponent_ && vstEditController_ && !isSameObject(vstComponent_, vstEditController_)) {
+            vstEditController_->terminate();
         }
         if (vstComponent_) {
             vstComponent_->terminate();
