@@ -82,9 +82,9 @@ enum class Color : int { Normal = 0, Red = 91, Green = 92 };
 void lpr(const Color c, const wchar_t *type, const char *file, const int line, const wchar_t *fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    fwprintf(stderr, L"\x1b[%dm%-5s: %hs(%d): ", static_cast<int>(c), type, file, line);
-    vfwprintf(stderr, fmt, args);
-    fwprintf(stderr, L"\x1b[0m"); // 0 = reset
+    (void)fwprintf(stderr, L"\x1b[%dm%-5s: %hs(%d): ", static_cast<int>(c), type, file, line);
+    (void)vfwprintf(stderr, fmt, args);
+    (void)fwprintf(stderr, L"\x1b[0m"); // 0 = reset
     va_end(args);
 }
 
@@ -130,7 +130,7 @@ class Wasapi final {
         DWORD          taskIndex = 0;
         HANDLE         hTask     = nullptr;
         HRESULT        hrCoInit  = E_UNEXPECTED;
-        if (FAILED(hrCoInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED))) {
+        if (hrCoInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED); FAILED(hrCoInit)) {
             MY_ERROR(L"FAILED(0x%08x), CoInitializeEx\n", hrCoInit);
             goto end;
         }
@@ -140,27 +140,27 @@ class Wasapi final {
             goto end;
         }
         // Start playing.
-        if (HRESULT hr; FAILED(hr = audioClient_->Start())) {
+        if (HRESULT hr = audioClient_->Start(); FAILED(hr)) {
             MY_ERROR(L"FAILED(0x%08x), audioClient_->Start()\n", hr);
             goto end;
         }
         // If hCloseAudioThreadEvent is signaled, WaitForMultipleObjects returns (WAIT_OBJECT_0 + 1).
         while (WaitForMultipleObjects(std::size(events), events, FALSE, INFINITE) == WAIT_OBJECT_0) {
             uint32_t pad = 0;
-            if (HRESULT hr; FAILED(hr = audioClient_->GetCurrentPadding(&pad))) {
+            if (HRESULT hr = audioClient_->GetCurrentPadding(&pad); FAILED(hr)) {
                 MY_ERROR(L"FAILED(0x%08x), audioClient_->GetCurrentPadding()\n", hr);
                 break;
             }
             const uint32_t nFrame = bufferSize_ - pad;
             float         *o;
-            if (HRESULT hr; FAILED(hr = audioRenderClient_->GetBuffer(nFrame, reinterpret_cast<BYTE **>(&o)))) {
+            if (HRESULT hr = audioRenderClient_->GetBuffer(nFrame, reinterpret_cast<BYTE **>(&o)); FAILED(hr)) {
                 MY_ERROR(L"FAILED(0x%08x), audioRenderClient_->GetBuffer()\n", hr);
                 break;
             }
             if (refillFunc_) {
                 const RefillArgs refillArgs{
                     .wasapiInterleavedBuf = std::span(o, nFrame * nChannels),
-                    .sampleRate           = (double)pFormat_->nSamplesPerSec,
+                    .sampleRate           = static_cast<double>(pFormat_->nSamplesPerSec),
                     .nChannels            = nChannels,
                     .nSamples             = nFrame,
                 };
@@ -168,7 +168,7 @@ class Wasapi final {
             } else {
                 memset(o, 0, nFrame * nChannels * sizeof(*o));
             }
-            if (HRESULT hr; FAILED(hr = audioRenderClient_->ReleaseBuffer(nFrame, 0))) {
+            if (HRESULT hr = audioRenderClient_->ReleaseBuffer(nFrame, 0); FAILED(hr)) {
                 MY_ERROR(L"FAILED(0x%08x), audioRenderClient_->ReleaseBuffer()\n", hr);
                 break;
             }
@@ -177,7 +177,7 @@ class Wasapi final {
         if (hTask) {
             AvRevertMmThreadCharacteristics(hTask);
         }
-        if (HRESULT hr; FAILED(hr = audioClient_->Stop())) {
+        if (HRESULT hr = audioClient_->Stop(); FAILED(hr)) {
             MY_ERROR(L"FAILED(0x%08x), audioClient_->Stop()\n", hr);
         }
         if (SUCCEEDED(hrCoInit)) {
@@ -190,24 +190,26 @@ class Wasapi final {
         hCloseAudioThreadEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
         hRefillEvent_          = CreateEvent(nullptr, FALSE, FALSE, nullptr);
 
-        if (HRESULT hr; FAILED(hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-                                                     __uuidof(IMMDeviceEnumerator),
-                                                     reinterpret_cast<void **>(&mmDeviceEnumerator_)))) {
+        if (HRESULT hr =
+                CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
+                                 reinterpret_cast<void **>(&mmDeviceEnumerator_));
+            FAILED(hr)) {
             return MY_ERROR(L"FAILED(0x%08x), CoCreateInstance()\n", hr);
         }
 
         // eRender and eConsole are declared in mmdeviceapi.h
-        if (HRESULT hr; FAILED(
-                hr = mmDeviceEnumerator_->GetDefaultAudioEndpoint(EDataFlow::eRender, ERole::eConsole, &mmDevice_))) {
+        if (HRESULT hr = mmDeviceEnumerator_->GetDefaultAudioEndpoint(EDataFlow::eRender, ERole::eConsole, &mmDevice_);
+            FAILED(hr)) {
             return MY_ERROR(L"FAILED(0x%08x), mmDeviceEnumerator_->GetDefaultAudioEndpoint()\n", hr);
         }
 
-        if (HRESULT hr; FAILED(hr = mmDevice_->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
-                                                        reinterpret_cast<void **>(&audioClient_)))) {
+        if (HRESULT hr = mmDevice_->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
+                                             reinterpret_cast<void **>(&audioClient_));
+            FAILED(hr)) {
             return MY_ERROR(L"FAILED(0x%08x), mmDevice_->Activate()\n", hr);
         }
 
-        if (HRESULT hr; FAILED(hr = audioClient_->GetMixFormat(&pFormat_))) {
+        if (HRESULT hr = audioClient_->GetMixFormat(&pFormat_); FAILED(hr)) {
             return MY_ERROR(L"FAILED(0x%08x), audioClient_->GetMixFormat()\n", hr);
         }
 
@@ -235,22 +237,23 @@ class Wasapi final {
             CoTaskMemFree(closestMatch);
         }
 
-        if (HRESULT hr;
-            FAILED(hr = audioClient_->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-                                                 hnsBufferDuration, 0, pFormat_, nullptr))) {
+        if (HRESULT hr = audioClient_->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                                                  hnsBufferDuration, 0, pFormat_, nullptr);
+            FAILED(hr)) {
             return MY_ERROR(L"FAILED(0x%08x), audioClient_->Initialize()\n", hr);
         }
 
-        if (HRESULT hr; FAILED(hr = audioClient_->SetEventHandle(hRefillEvent_))) {
+        if (HRESULT hr = audioClient_->SetEventHandle(hRefillEvent_); FAILED(hr)) {
             return MY_ERROR(L"FAILED(0x%08x), audioClient_->SetEventHandle()\n", hr);
         }
 
-        if (HRESULT hr; FAILED(hr = audioClient_->GetService(__uuidof(IAudioRenderClient),
-                                                             reinterpret_cast<void **>(&audioRenderClient_)))) {
+        if (HRESULT hr =
+                audioClient_->GetService(__uuidof(IAudioRenderClient), reinterpret_cast<void **>(&audioRenderClient_));
+            FAILED(hr)) {
             return MY_ERROR(L"FAILED(0x%08x), audioClient_->GetService()\n", hr);
         }
 
-        if (HRESULT hr; FAILED(hr = audioClient_->GetBufferSize(&bufferSize_))) {
+        if (HRESULT hr = audioClient_->GetBufferSize(&bufferSize_); FAILED(hr)) {
             return MY_ERROR(L"FAILED(0x%08x), audioClient_->GetBufferSize()\n", hr);
         }
         initialized_ = true;
@@ -502,7 +505,7 @@ class Vst3Plugin final {
 
     // Callback when the plugin side requests a GUI resize
     Steinberg::tresult resizeView(const Steinberg::ViewRect *newSize) const {
-        HWND const hWnd = hWnd_;
+        const HWND hWnd = hWnd_;
         if (!hWnd) {
             return Steinberg::kResultFalse;
         }
@@ -534,9 +537,9 @@ class Vst3Plugin final {
         outBus.channelBuffers32                = std::data(vstOutChannelPtrs);
 
         Steinberg::Vst::ProcessContext context = {};
-        context.state = Steinberg::Vst::ProcessContext::kPlaying | Steinberg::Vst::ProcessContext::kTempoValid |
-                        Steinberg::Vst::ProcessContext::kProjectTimeMusicValid;
-        context.sampleRate       = sampleRate;
+        context.state      = Steinberg::Vst::ProcessContext::kPlaying | Steinberg::Vst::ProcessContext::kTempoValid |
+                             Steinberg::Vst::ProcessContext::kProjectTimeMusicValid;
+        context.sampleRate = sampleRate;
         context.projectTimeMusic = ppqPosition;
         context.tempo            = tempo;
 
@@ -923,8 +926,8 @@ class AppMain final {
         }
         inpPtrs_.resize(wasapi.getNumChannels());
         outPtrs_.resize(wasapi.getNumChannels());
-        pingPongAudioBuffers_[0].resize(wasapi.getBufferSize() * wasapi.getNumChannels());
-        pingPongAudioBuffers_[1].resize(wasapi.getBufferSize() * wasapi.getNumChannels());
+        pingPongAudioBuffers_[0].resize(static_cast<size_t>(wasapi.getBufferSize()) * wasapi.getNumChannels());
+        pingPongAudioBuffers_[1].resize(static_cast<size_t>(wasapi.getBufferSize() * wasapi.getNumChannels()));
 
         // Callback from the audio thread during WASAPI updates. Calls the process methods of each plugin.
         wasapi.setAudioThreadRefillCallback([&](const Wasapi::RefillArgs &x) { return audioThreadAppRefill(x); });
@@ -1034,7 +1037,7 @@ int main() {
     MY_TRACE(L"Start\n");
     int result = EXIT_FAILURE;
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-    if (HRESULT hr; FAILED(hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) {
+    if (HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); FAILED(hr)) {
         MY_ERROR(L"FAILED(0x%08x), CoInitializeEx()", hr);
     } else {
         try {
